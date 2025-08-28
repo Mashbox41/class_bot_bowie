@@ -48,6 +48,41 @@ async def call_llm(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
             else:
                 yield line
 
+from fastapi.responses import StreamingResponse
+import urllib.parse, base64, json
+
+def _json_b64_decode(s: str):
+    try:
+        raw = base64.b64decode(s.encode("utf-8")).decode("utf-8")
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+@app.get("/chat_sse")
+async def chat_sse(q: str, ctx: str = ""):
+    """
+    Streaming chat via GET to avoid CORS preflight.
+    q   = prompt (URL-encoded)
+    ctx = base64(JSON of {lastTurns, factHits, snippets})
+    """
+    prompt = urllib.parse.unquote_plus(q)
+    context = _json_b64_decode(ctx)
+
+    sys = "You are Class Robot—concise, friendly, practical. Use context sparingly."
+    messages = [{"role": "system", "content": sys}]
+    if context:
+        messages.append({"role":"user","content":f"[Context]\n{json.dumps(context)[:4000]}"} )
+    messages.append({"role": "user", "content": prompt})
+
+    async def event_stream():
+        yield "data: " + json.dumps({"delta": ""}) + "\n\n"
+        async for chunk in call_llm(messages):
+            yield "data: " + json.dumps({"delta": chunk}) + "\n\n"
+        yield "data: " + json.dumps({"done": True}) + "\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 @app.post("/mem/pull")
 async def mem_pull():
     return JSONResponse(SERVER_MEMORY)
