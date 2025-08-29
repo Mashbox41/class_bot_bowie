@@ -29,27 +29,47 @@ SERVER_MEMORY: Dict[str, Any] = {
 
 async def call_llm(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
     """
-    Stream assistant text from your proxy (Anthropic/OpenRouter).
-    Expected to support streamed chunks; here we simulate tokenized chunks if needed.
+    Stream assistant text from Groq's OpenAI-compatible /chat/completions API.
+    Yields text deltas suitable for SSE relaying.
     """
-    # Example: streamed relay (adjust to your proxy contract)
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(ANTHROPIC_PROXY_URL, json={"messages": messages, "stream": True})
-        resp.raise_for_status()
-        async for line in resp.aiter_lines():
-            if not line: 
-                continue
-            # expect lines like: data: {"delta":"text"} or plain chunks
-            if line.startswith("data:"):
-                try:
-                    payload = json.loads(line[5:].strip())
-                    delta = payload.get("delta") or payload.get("text") or ""
-                    if delta:
-                        yield delta
-                except Exception:
-                    pass
-            else:
-                yield line
+    if not GROQ_API_KEY:
+        # Fail fast with a helpful message
+        yield "[Server error: Missing GROQ_API_KEY]"
+        return
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": messages,
+        "stream": True,
+        # Optional tunables:
+        # "temperature": 0.5,
+        # "max_tokens": 1024,
+    }
+
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream("POST", GROQ_API_URL, headers=headers, json=payload) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                if line.startswith("data: "):
+                    data = line[6:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        obj = json.loads(data)
+                        # OpenAI-style chunk:
+                        delta = obj.get("choices", [{}])[0].get("delta", {}).get("content")
+                        if delta:
+                            yield delta
+                    except Exception:
+                        # If Groq ever emits plain text or a non-JSON line
+                        continue
+
 
 from fastapi.responses import StreamingResponse
 import urllib.parse, base64, json
