@@ -116,11 +116,6 @@ async def health():
 
 @app.get("/chat_sse")
 async def chat_sse(q: str, ctx: str = ""):
-    """
-    Streaming chat via GET (SSE) to avoid CORS preflight.
-    q   = prompt (URL-encoded)
-    ctx = base64(JSON of {lastTurns, factHits, snippets})
-    """
     prompt = urllib.parse.unquote_plus(q)
     context = _json_b64_decode(ctx)
 
@@ -131,22 +126,21 @@ async def chat_sse(q: str, ctx: str = ""):
     messages.append({"role": "user", "content": prompt})
 
     async def event_stream():
-        # Optional kickoff (blank); safe to remove if you prefer no empty token
-        # yield "data: " + json.dumps({"delta": ""}) + "\n\n"
         async for chunk in call_llm(messages):
             yield "data: " + json.dumps({"delta": chunk}) + "\n\n"
         yield "data: " + json.dumps({"done": True}) + "\n\n"
 
     return StreamingResponse(
-    event_stream(),
-    media_type="text/event-stream",
-    headers={
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "X-Accel-Buffering": "no",   # stops proxy buffering
-        "Transfer-Encoding": "chunked",
-    },
-)
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Transfer-Encoding": "chunked",
+        },
+    )
+
 
 
 
@@ -172,15 +166,15 @@ async def chat_stream(req: Request):
     yield "data: " + json.dumps({"done": True}) + "\n\n"
 
     return StreamingResponse(
-    event_stream(),
-    media_type="text/event-stream",
-    headers={
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "X-Accel-Buffering": "no",   # stops proxy buffering
-        "Transfer-Encoding": "chunked",
-    },
-)
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",   # stops proxy buffering
+            "Transfer-Encoding": "chunked",
+        },
+    )
 
 
 # ---- Memory sync (toy) ----
