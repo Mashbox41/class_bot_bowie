@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 APP_ORIGIN   = os.getenv("APP_ORIGIN", "*")  # e.g., "https://class-bot-bowie.onrender.com"
 GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+# Pick any currently supported Groq model in your Render env; this is a safe default:
 GROQ_MODEL   = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 # ------------- FastAPI ---------------
@@ -99,6 +100,7 @@ async def call_llm(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
                         choices = obj.get("choices") or []
                         if choices:
                             delta = choices[0].get("delta") or {}
+                            # Providers may send role first—ignore it until content arrives
                             content = delta.get("content")
                             if content:
                                 yield content
@@ -108,6 +110,10 @@ async def call_llm(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
             yield f"[Server exception] {str(e)}"
 
 # ------------- Routes ----------------
+@app.get("/health")
+async def health():
+    return {"ok": True}
+
 @app.get("/chat_sse")
 async def chat_sse(q: str, ctx: str = ""):
     """
@@ -125,22 +131,22 @@ async def chat_sse(q: str, ctx: str = ""):
     messages.append({"role": "user", "content": prompt})
 
     async def event_stream():
-        # Kick off for client UI
-        yield "data: " + json.dumps({"delta": ""}) + "\n\n"
+        # Optional kickoff (blank); safe to remove if you prefer no empty token
+        # yield "data: " + json.dumps({"delta": ""}) + "\n\n"
         async for chunk in call_llm(messages):
             yield "data: " + json.dumps({"delta": chunk}) + "\n\n"
         yield "data: " + json.dumps({"done": True}) + "\n\n"
 
     return StreamingResponse(
-    event_stream(),
-    media_type="text/event-stream",
-    headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",   # important if Render/nginx sits in front
-        "Connection": "keep-alive",
-    },
-)
-
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",   # disable proxy buffering
+            "Transfer-Encoding": "chunked",
+        },
+    )
 
 @app.post("/chat_stream")
 async def chat_stream(req: Request):
@@ -159,21 +165,20 @@ async def chat_stream(req: Request):
     messages.append({"role": "user", "content": prompt})
 
     async def event_stream():
-        yield "data: " + json.dumps({"delta": ""}) + "\n\n"
         async for chunk in call_llm(messages):
             yield "data: " + json.dumps({"delta": chunk}) + "\n\n"
         yield "data: " + json.dumps({"done": True}) + "\n\n"
 
     return StreamingResponse(
-    event_stream(),
-    media_type="text/event-stream",
-    headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",   # important if Render/nginx sits in front
-        "Connection": "keep-alive",
-    },
-)
-
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Transfer-Encoding": "chunked",
+        },
+    )
 
 # ---- Memory sync (toy) ----
 @app.post("/mem/pull")
@@ -219,7 +224,7 @@ async def chat_test(q: str = "Say hello"):
         try:
             j = r.json()
         except Exception:
-            j = {"raw": await r.aread()}
+            j = {"raw": (await r.aread()).decode("utf-8", "ignore")}
         if r.status_code != 200:
             return JSONResponse({"status": r.status_code, "error": j}, status_code=500)
         try:
