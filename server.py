@@ -6,8 +6,11 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 
-APP_ORIGIN = os.getenv("APP_ORIGIN", "*")  # set to your domain in prod
-ANTHROPIC_PROXY_URL = os.getenv("ANTHROPIC_PROXY_URL", "https://class-bot-bowie.onrender.com")  # your proxy
+APP_ORIGIN = os.getenv("APP_ORIGIN", "*")
+GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL   = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
+
 
 app = FastAPI()
 app.add_middleware(
