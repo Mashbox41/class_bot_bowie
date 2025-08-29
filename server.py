@@ -39,69 +39,25 @@ def _json_b64_decode(s: str) -> Dict[str, Any]:
         return {}
 
 async def call_llm(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
-    """
-    Stream assistant text from Groq's OpenAI-compatible /chat/completions API.
-    Yields plain text deltas suitable for SSE relaying.
-    Surfaces errors inline so the frontend can display them.
-    """
-    if not GROQ_API_KEY:
-        yield "[Server error] Missing GROQ_API_KEY"
-        return
-
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-    }
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": messages,
-        "stream": True,
-    }
-
+    headers = {"Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}"}
+    payload = {"model": os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+               "messages": messages, "stream": True}
     async with httpx.AsyncClient(timeout=None) as client:
-        try:
-            async with client.stream("POST", GROQ_API_URL, headers=headers, json=payload) as resp:
-                if resp.status_code != 200:
-                    body = (await resp.aread()).decode("utf-8", "ignore")
+        async with client.stream("POST", GROQ_API_URL, headers=headers, json=payload) as resp:
+            if resp.status_code != 200:
+                err = await resp.aread()
+                yield f"[Error {resp.status_code}] {err.decode()}"
+                return
+            async for line in resp.aiter_lines():
+                if not line: continue
+                if line.startswith("data:"):
                     try:
-                        err = json.loads(body).get("error")
-                        msg = err.get("message") if isinstance(err, dict) else body
-                    except Exception:
-                        msg = body or "Unknown error"
-                    yield f"[Groq {resp.status_code}] {msg}"
-                    return
+                        data = json.loads(line[5:])
+                        delta = data.get("choices",[{}])[0].get("delta",{}).get("content")
+                        if delta: yield delta
+                    except Exception as e:
+                        yield f"[parse error] {e} :: {line}"
 
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    if line.startswith("data: "):
-                        data = line[6:].strip()
-                        if data == "[DONE]":
-                            break
-                        try:
-                            obj = json.loads(data)
-                        except Exception:
-                            if data:
-                                yield str(data)
-                            continue
-
-                        if "error" in obj:
-                            err = obj["error"]
-                            msg = err.get("message", str(err))
-                            yield f"[Groq error] {msg}"
-                            continue
-
-                        choices = obj.get("choices") or []
-                        if choices:
-                            delta = choices[0].get("delta") or {}
-                            content = delta.get("content")
-                            if content:
-                                yield content
-        except httpx.HTTPError as e:
-            yield f"[HTTP error] {str(e)}"
-        except Exception as e:
-            yield f"[Server exception] {str(e)}"
 
 # ------------- Routes ----------------
 @app.get("/health")
