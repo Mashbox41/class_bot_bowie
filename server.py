@@ -131,7 +131,16 @@ async def chat_sse(q: str, ctx: str = ""):
             yield "data: " + json.dumps({"delta": chunk}) + "\n\n"
         yield "data: " + json.dumps({"done": True}) + "\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+    event_stream(),
+    media_type="text/event-stream",
+    headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",   # important if Render/nginx sits in front
+        "Connection": "keep-alive",
+    },
+)
+
 
 @app.post("/chat_stream")
 async def chat_stream(req: Request):
