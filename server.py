@@ -57,9 +57,6 @@ async def call_llm(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
         "model": GROQ_MODEL,
         "messages": messages,
         "stream": True,
-        # Optional:
-        # "temperature": 0.5,
-        # "max_tokens": 1024,
     }
 
     async with httpx.AsyncClient(timeout=None) as client:
@@ -82,11 +79,9 @@ async def call_llm(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
                         data = line[6:].strip()
                         if data == "[DONE]":
                             break
-                        # Streaming frames are JSON objects
                         try:
                             obj = json.loads(data)
                         except Exception:
-                            # In case Groq sends a plain-text diagnostic
                             if data:
                                 yield str(data)
                             continue
@@ -100,7 +95,6 @@ async def call_llm(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
                         choices = obj.get("choices") or []
                         if choices:
                             delta = choices[0].get("delta") or {}
-                            # Providers may send role first—ignore it until content arrives
                             content = delta.get("content")
                             if content:
                                 yield content
@@ -141,9 +135,6 @@ async def chat_sse(q: str, ctx: str = ""):
         },
     )
 
-
-
-
 @app.post("/chat_stream")
 async def chat_stream(req: Request):
     """
@@ -160,10 +151,10 @@ async def chat_stream(req: Request):
         messages.append({"role": "user", "content": f"[Context]\n{json.dumps(context)[:4000]}"} )
     messages.append({"role": "user", "content": prompt})
 
-   async def event_stream():
-    async for chunk in call_llm(messages):
-        yield "data: " + json.dumps({"delta": chunk}) + "\n\n"
-    yield "data: " + json.dumps({"done": True}) + "\n\n"
+    async def event_stream():
+        async for chunk in call_llm(messages):
+            yield "data: " + json.dumps({"delta": chunk}) + "\n\n"
+        yield "data: " + json.dumps({"done": True}) + "\n\n"
 
     return StreamingResponse(
         event_stream(),
@@ -176,7 +167,6 @@ async def chat_stream(req: Request):
         },
     )
 
-
 # ---- Memory sync (toy) ----
 @app.post("/mem/pull")
 async def mem_pull():
@@ -185,12 +175,10 @@ async def mem_pull():
 @app.post("/mem/push")
 async def mem_push(req: Request):
     body = await req.json()
-    # Merge-append simple policy:
     facts = body.get("facts", {})
     for k, v in facts.items():
         SERVER_MEMORY["facts"][k] = v
     for snip in body.get("snippets", []):
-        # Ensure a minimal shape and avoid dupes
         if snip and isinstance(snip, dict) and snip.get("text"):
             SERVER_MEMORY["snippets"].append({
                 "id": snip.get("id") or f"srv_{len(SERVER_MEMORY['snippets'])+1}",
