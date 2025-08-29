@@ -138,15 +138,17 @@ async def chat_sse(q: str, ctx: str = ""):
         yield "data: " + json.dumps({"done": True}) + "\n\n"
 
     return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",   # disable proxy buffering
-            "Transfer-Encoding": "chunked",
-        },
-    )
+    event_stream(),
+    media_type="text/event-stream",
+    headers={
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",   # stops proxy buffering
+        "Transfer-Encoding": "chunked",
+    },
+)
+
+
 
 @app.post("/chat_stream")
 async def chat_stream(req: Request):
@@ -164,21 +166,22 @@ async def chat_stream(req: Request):
         messages.append({"role": "user", "content": f"[Context]\n{json.dumps(context)[:4000]}"} )
     messages.append({"role": "user", "content": prompt})
 
-    async def event_stream():
-        async for chunk in call_llm(messages):
-            yield "data: " + json.dumps({"delta": chunk}) + "\n\n"
-        yield "data: " + json.dumps({"done": True}) + "\n\n"
+   async def event_stream():
+    async for chunk in call_llm(messages):
+        yield "data: " + json.dumps({"delta": chunk}) + "\n\n"
+    yield "data: " + json.dumps({"done": True}) + "\n\n"
 
     return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-            "Transfer-Encoding": "chunked",
-        },
-    )
+    event_stream(),
+    media_type="text/event-stream",
+    headers={
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",   # stops proxy buffering
+        "Transfer-Encoding": "chunked",
+    },
+)
+
 
 # ---- Memory sync (toy) ----
 @app.post("/mem/pull")
